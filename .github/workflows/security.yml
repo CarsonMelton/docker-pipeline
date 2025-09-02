@@ -25,16 +25,22 @@ jobs:
       # ---------------------------
       # Run Gitleaks
       # ---------------------------
+      - name: Install Gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz -o gitleaks.tar.gz
+          tar -xvzf gitleaks.tar.gz
+          chmod +x gitleaks
+          sudo mv gitleaks /usr/local/bin/
+
       - name: Run Gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
-          chmod +x gitleaks
-          ./gitleaks detect --report-format sarif --report-path gitleaks.sarif --exit-code 0
+          gitleaks detect --report-format sarif --report-path gitleaks.sarif --exit-code 0
 
       - name: Upload Gitleaks SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
+
 
       # ---------------------------
       # Run pip-audit
