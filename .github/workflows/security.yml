@@ -14,9 +14,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ---------------------------
+      # Checkout repository
+      # ---------------------------
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # ---------------------------
+      # Set up Python
+      # ---------------------------
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -28,19 +34,18 @@ jobs:
       - name: Install Gitleaks
         run: |
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz -o gitleaks.tar.gz
-          tar -xvzf gitleaks.tar.gz
+          tar -xvzf gitleaks.tar.gz --strip-components=1
           chmod +x gitleaks
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run Gitleaks
-        run: |
-          gitleaks detect --report-format sarif --report-path gitleaks.sarif --exit-code 0
+        run: gitleaks detect --report-format sarif --report-path gitleaks.sarif --exit-code 0
 
       - name: Upload Gitleaks SARIF
+        if: ${{ always() && hashFiles('gitleaks.sarif') }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
-
 
       # ---------------------------
       # Run pip-audit
@@ -49,17 +54,14 @@ jobs:
         run: pip install --upgrade pip-audit
 
       - name: Run pip-audit
-        run: |
-          pip-audit -r requirements.txt -f json -o pip-audit.json || true
+        run: pip-audit -r requirements.txt -f json -o pip-audit.json || true
 
-      - name: Upload pip-audit report (JSON)
+      - name: Upload pip-audit report
+        if: ${{ always() && hashFiles('pip-audit.json') }}
         uses: actions/upload-artifact@v4
         with:
           name: pip-audit-report
           path: pip-audit.json
-
-
-
 
       # ---------------------------
       # Run Bandit
@@ -68,32 +70,30 @@ jobs:
         run: pip install bandit
 
       - name: Run Bandit
-        run: |
-          bandit -r . -f sarif -o bandit.sarif || true
+        run: bandit -r . -f sarif -o bandit.sarif || true
 
       - name: Upload Bandit SARIF
+        if: ${{ always() && hashFiles('bandit.sarif') }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: bandit.sarif
 
       # ---------------------------
-      # Run Trivy
+      # Run Trivy Docker scan
       # ---------------------------
-      - name: Install Trivy
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget
-          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.0_Linux-64bit.deb
-          sudo dpkg -i trivy_0.50.0_Linux-64bit.deb
-
       - name: Build Docker image
         run: docker build -t insecure-app .
 
-      - name: Run Trivy on Docker image
-        run: |
-          trivy image --format sarif --output trivy-image.sarif insecure-app || true
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@v0.33.0
+        with:
+          image-ref: insecure-app
+          format: sarif
+          output: trivy-image.sarif
+
 
       - name: Upload Trivy SARIF
+        if: ${{ always() && hashFiles('trivy-image.sarif') }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
