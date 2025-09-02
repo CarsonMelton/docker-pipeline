@@ -45,17 +45,19 @@ jobs:
       # ---------------------------
       # Run pip-audit
       # ---------------------------
-      - name: Install pip-audit (latest)
+      - name: Install pip-audit
         run: pip install --upgrade pip-audit
 
-      - name: Run pip-audit with SARIF
+      - name: Run pip-audit
         run: |
-          pip-audit -r requirements.txt -f sarif -o pip-audit.sarif || true
+          pip-audit -r requirements.txt -f json -o pip-audit.json || true
 
-      - name: Upload pip-audit SARIF
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload pip-audit report (JSON)
+        uses: actions/upload-artifact@v3
         with:
-          sarif_file: pip-audit.sarif
+          name: pip-audit-report
+          path: pip-audit.json
+
 
 
 
