@@ -53,7 +53,7 @@ jobs:
           pip-audit -r requirements.txt -f json -o pip-audit.json || true
 
       - name: Upload pip-audit report (JSON)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: pip-audit-report
           path: pip-audit.json
