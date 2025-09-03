@@ -44,10 +44,10 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run Gitleaks
-        run: gitleaks detect --report-format sarif --report-path reports/gitleaks.sarif --exit-code 0
+        run: gitleaks detect --report-format sarif --report-path reports/gitleaks.sarif --exit-code 0 || true
 
       - name: Upload Gitleaks SARIF
-        if: always()
+        if: always() && hashFiles('reports/gitleaks.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/gitleaks.sarif
@@ -62,14 +62,18 @@ jobs:
         run: pip-audit -r requirements.txt -f json -o reports/pip-audit.json || true
 
       - name: Convert pip-audit JSON to SARIF
+        if: always() && hashFiles('reports/pip-audit.json') != ''
         run: |
           python3 << 'EOF'
-          import json, sys
+          import json, os
 
           with open("reports/pip-audit.json") as f:
-              data = json.load(f)
+              try:
+                  data = json.load(f)
+              except json.JSONDecodeError:
+                  print("pip-audit produced invalid JSON, skipping SARIF conversion")
+                  exit(0)
 
-          # Minimal SARIF skeleton
           sarif = {
               "version": "2.1.0",
               "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
@@ -97,7 +101,6 @@ jobs:
                   advisory = vuln.get("description", "")
                   fix_versions = vuln.get("fix_versions", [])
 
-                  # Add rule if not already present
                   if vuln_id not in rules:
                       rules[vuln_id] = {
                           "id": vuln_id,
@@ -126,13 +129,13 @@ jobs:
           EOF
 
       - name: Upload pip-audit SARIF
-        if: always()
+        if: always() && hashFiles('reports/pip-audit.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/pip-audit.sarif
 
       - name: Upload pip-audit JSON artifact
-        if: always()
+        if: always() && hashFiles('reports/pip-audit.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: pip-audit-json
@@ -148,7 +151,7 @@ jobs:
         run: bandit -r . -f sarif -o reports/bandit.sarif || true
 
       - name: Upload Bandit SARIF
-        if: always()
+        if: always() && hashFiles('reports/bandit.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/bandit.sarif
@@ -165,9 +168,10 @@ jobs:
           image-ref: insecure-app
           format: sarif
           output: reports/trivy-image.sarif
+          exit-code: '0'
 
       - name: Upload Trivy SARIF
-        if: always()
+        if: always() && hashFiles('reports/trivy-image.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/trivy-image.sarif
@@ -176,7 +180,7 @@ jobs:
       # Upload all reports as artifact
       # ---------------------------
       - name: Upload all reports
-        if: always()
+        if: always() && hashFiles('reports/*') != ''
         uses: actions/upload-artifact@v4
         with:
           name: security-reports
