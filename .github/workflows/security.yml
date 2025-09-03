@@ -36,13 +36,6 @@ jobs:
       # ---------------------------
       # Run Gitleaks
       # ---------------------------
-      - name: Install Gitleaks
-        run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz -o gitleaks.tar.gz
-          tar -xvzf gitleaks.tar.gz --strip-components=1
-          chmod +x gitleaks
-          sudo mv gitleaks /usr/local/bin/
-
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
