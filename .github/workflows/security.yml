@@ -44,7 +44,10 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run Gitleaks
-        run: gitleaks detect --report-format sarif --report-path reports/gitleaks.sarif --exit-code 0 || true
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --report-format sarif --report-path reports/gitleaks.sarif --exit-code 0
+
 
       - name: Upload Gitleaks SARIF
         if: always() && hashFiles('reports/gitleaks.sarif') != ''
