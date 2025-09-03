@@ -4,7 +4,6 @@ on:
   push:
   pull_request:
 
-# Required for uploading to the Security tab
 permissions:
   contents: read
   security-events: write
@@ -18,7 +17,7 @@ jobs:
       # Checkout repository
       # ---------------------------
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       # ---------------------------
       # Set up Python
@@ -27,6 +26,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
+      # ---------------------------
+      # Prepare reports directory
+      # ---------------------------
+      - name: Create reports folder
+        run: mkdir -p reports
 
       # ---------------------------
       # Run Gitleaks
@@ -39,13 +44,13 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       - name: Run Gitleaks
-        run: gitleaks detect --report-format sarif --report-path gitleaks.sarif --exit-code 0
+        run: gitleaks detect --report-format sarif --report-path reports/gitleaks.sarif --exit-code 0
 
       - name: Upload Gitleaks SARIF
-        if: ${{ always() && hashFiles('gitleaks.sarif') }}
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: gitleaks.sarif
+          sarif_file: reports/gitleaks.sarif
 
       # ---------------------------
       # Run pip-audit
@@ -54,14 +59,84 @@ jobs:
         run: pip install --upgrade pip-audit
 
       - name: Run pip-audit
-        run: pip-audit -r requirements.txt -f json -o pip-audit.json || true
+        run: pip-audit -r requirements.txt -f json -o reports/pip-audit.json || true
 
-      - name: Upload pip-audit report
-        if: ${{ always() && hashFiles('pip-audit.json') }}
+      - name: Convert pip-audit JSON to SARIF
+        run: |
+          python3 << 'EOF'
+          import json, sys
+
+          with open("reports/pip-audit.json") as f:
+              data = json.load(f)
+
+          # Minimal SARIF skeleton
+          sarif = {
+              "version": "2.1.0",
+              "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
+              "runs": [{
+                  "tool": {
+                      "driver": {
+                          "name": "pip-audit",
+                          "informationUri": "https://github.com/pypa/pip-audit",
+                          "rules": []
+                      }
+                  },
+                  "results": []
+              }]
+          }
+
+          rules = {}
+          results = []
+
+          for dep in data:
+              pkg = dep.get("name")
+              version = dep.get("version")
+              vulns = dep.get("vulns", [])
+              for vuln in vulns:
+                  vuln_id = vuln.get("id")
+                  advisory = vuln.get("description", "")
+                  fix_versions = vuln.get("fix_versions", [])
+
+                  # Add rule if not already present
+                  if vuln_id not in rules:
+                      rules[vuln_id] = {
+                          "id": vuln_id,
+                          "name": vuln_id,
+                          "shortDescription": {"text": advisory or "Dependency vulnerability"},
+                          "fullDescription": {"text": advisory or "Reported by pip-audit"},
+                          "help": {"text": f"Upgrade {pkg} from {version} to {fix_versions}" if fix_versions else "No fix available"}
+                      }
+
+                  results.append({
+                      "ruleId": vuln_id,
+                      "level": "error",
+                      "message": {"text": f"{pkg} {version} is vulnerable: {advisory}"},
+                      "locations": [{
+                          "physicalLocation": {
+                              "artifactLocation": {"uri": "requirements.txt"}
+                          }
+                      }]
+                  })
+
+          sarif["runs"][0]["tool"]["driver"]["rules"] = list(rules.values())
+          sarif["runs"][0]["results"] = results
+
+          with open("reports/pip-audit.sarif", "w") as f:
+              json.dump(sarif, f, indent=2)
+          EOF
+
+      - name: Upload pip-audit SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/pip-audit.sarif
+
+      - name: Upload pip-audit JSON artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pip-audit-report
-          path: pip-audit.json
+          name: pip-audit-json
+          path: reports/pip-audit.json
 
       # ---------------------------
       # Run Bandit
@@ -70,13 +145,13 @@ jobs:
         run: pip install bandit
 
       - name: Run Bandit
-        run: bandit -r . -f sarif -o bandit.sarif || true
+        run: bandit -r . -f sarif -o reports/bandit.sarif || true
 
       - name: Upload Bandit SARIF
-        if: ${{ always() && hashFiles('bandit.sarif') }}
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: bandit.sarif
+          sarif_file: reports/bandit.sarif
 
       # ---------------------------
       # Run Trivy Docker scan
@@ -89,11 +164,20 @@ jobs:
         with:
           image-ref: insecure-app
           format: sarif
-          output: trivy-image.sarif
-
+          output: reports/trivy-image.sarif
 
       - name: Upload Trivy SARIF
-        if: ${{ always() && hashFiles('trivy-image.sarif') }}
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: trivy-image.sarif
+          sarif_file: reports/trivy-image.sarif
+
+      # ---------------------------
+      # Upload all reports as artifact
+      # ---------------------------
+      - name: Upload all reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
